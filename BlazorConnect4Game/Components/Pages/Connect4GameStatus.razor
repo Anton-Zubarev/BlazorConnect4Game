@@ -1,0 +1,37 @@
+﻿@using BlazorConnect4Game.FourOrderGame
+
+<div style="height: 6em; padding: 2em 0;">
+    <span class="alert alert-danger"
+        style="display:@(string.IsNullOrEmpty(ErrorMessage)?"none":"inline")"
+    >@ErrorMessage</span>
+    @winnerMessage  <button class="btn btn-primary" style="@ResetStyle" @onclick="ResetGame">Reset the game</button>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public required BlazorConnect4Game.FourOrderGame.GameState State { get; set; }
+    [Parameter, EditorRequired] public required EventCallback OnActionOccurred { get; set; }
+    [Parameter, EditorRequired] public required string ErrorMessage { get; set; }
+
+    private string winnerMessage = string.Empty;
+    private string errorMessage = string.Empty;
+
+    private string ResetStyle => (winnerMessage == string.Empty) ? "display: none;" : "";
+
+    async Task ResetGame()
+    {
+        await OnActionOccurred.InvokeAsync();
+    }
+
+    protected override void OnParametersSet() 
+    {
+        var pid = !State.IsXTurn ? State.PlayerXId : State.PlayerOId;
+        winnerMessage = State.CheckForWin() switch
+        {
+            GameState.WinState.Player1_Wins => $"Player 1 ({pid}) Wins!",
+            GameState.WinState.Player2_Wins => $"Player 2 ({pid}) Wins!",
+            GameState.WinState.Tie => "It's a tie!",
+            _ => ""
+        };
+    }
+
+}

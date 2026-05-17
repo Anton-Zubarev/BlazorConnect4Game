@@ -1,0 +1,186 @@
+﻿@using BlazorConnect4Game.FourOrderGame
+@inject BlazorConnect4Game.FourOrderGame.FourOrderGameStateManager mgr //.GameState State;
+@inject IServiceProvider ServiceProvider
+@inject Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage.ProtectedSessionStorage ProtectedStorage
+
+<PageTitle>Connect4</PageTitle>
+
+<HeadContent>
+    <style>
+        :root {
+            --board-bg: #999;  /** the color of the board **/
+            --player1: red;      /** Player 1's piece color **/
+            --player2: blue;     /** Player 2's piece color **/
+        }
+    </style>
+</HeadContent>
+
+<h3 style="white-space: nowrap; display: flex;align-items: center;">
+    Connect4
+    <span style="font-size:0.7em;display: flex;align-items: center; margin-left: 1em;">
+        Room: @RoomNumber > Player: 
+        <select class="form-select" style="width:6em;font-size: 1em; padding:0 .5em;margin-left: .5em;" aria-label="Player"
+        @bind="PlayerId" @bind:event="oninput">
+        <option value="player1">1</option>
+        <option value="player2">2</option>
+    </select>
+</span>
+</h3>
+
+<Connect4GameStatus State="@State" OnActionOccurred="ResetGame" ErrorMessage="@errorMessage" />
+
+
+
+<nav>
+    @for (byte i = 0; i < 7; i++)
+    {
+        var col = i;
+        <span class="@playPieceClass" title="Click to play a piece" @onclick="() => PlayPiece(col)">V</span>
+    }
+</nav>
+
+
+
+<div> 
+
+   <div class="board">
+      @for (var i = 0; i < 42; i++)
+      {
+         <span class="container">
+            <span></span>
+         </span>
+      }
+   </div>
+
+   @for (var i = 0; i < 42; i++)
+    {
+       <span class="@pieces[i]">@(i+1)</span>
+    }
+
+</div>
+@code {
+    private string RoomNumber = "1";
+    private GameState State;
+    private string _playerId = "player1";
+    public string PlayerId
+    {
+        get => _playerId;
+        set
+        {
+            if (_playerId != value)
+            {
+                _playerId = value;
+                OnPlayerIdChanged(_playerId);
+            }
+        }
+    }
+    private string[] pieces = Enumerable.Repeat<string>("dnone", 42).ToArray();
+
+    private string winnerMessage = string.Empty;
+    private string errorMessage = string.Empty;
+
+    private string playPieceClass => $"playPiece{State.PlayerTurn}";
+
+    private void PlayPiece(byte col)
+    {
+        errorMessage = string.Empty;
+
+        try
+        {
+            var player = State.PlayerTurn;
+            var turn = State.CurrentTurn;
+            var landingRow = State.PlayPiece(col, PlayerId);
+            if (landingRow > 200) return;
+            //pieces[turn] = $"player{player} col{col} drop{landingRow} piece";
+        }
+        catch(Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+
+    }
+
+    private async Task RefreshUI(string playerId)
+    {
+        //if (PlayerId == playerId) return;
+
+        var col = State.LastColumn;
+        var player = State.PlayerTurn == 1 ? 2 : 1;
+        var turn = State.CurrentTurn - 1;
+        var landingRow = State.LastLandingSpot;
+        pieces[turn] = $"player{player} col{col} drop{landingRow} piece";
+
+        await InvokeAsync(StateHasChanged); // Используем InvokeAsync, так как событие может прийти из другого потока (другой сессии)
+
+    }
+
+    async Task ResetGame()
+    {
+        //if (_playerId == playerId) return;
+        await State.ResetBoard();
+        await ResetGameEvent();
+    }
+
+    async Task ResetGameEvent()
+    {
+        //if (_playerId == playerId) return;
+        //Console.WriteLine($"ResetGameEvent - {PlayerId}");
+        winnerMessage = string.Empty;
+        errorMessage = string.Empty;
+        pieces = Enumerable.Repeat<string>("dnone", 42).ToArray();
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    async Task OnPlayerIdChanged(string playerId)
+    {
+        const string Key = "playerId";
+        await ProtectedStorage.SetAsync(Key, playerId);
+        State.SwapUIPlayer();
+    }
+
+    protected override void OnInitialized()
+    {
+        State = mgr.Get(RoomNumber);
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender) // Подписываемся ТОЛЬКО один раз при первом интерактивном рендере
+        {
+            //State.OnChange += async (playerId) => { await RefreshUI(playerId); };
+            State.OnChange += RefreshUI;
+            State.OnReset += ResetGameEvent;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return; // Подписываемся ТОЛЬКО один раз при первом интерактивном рендере
+
+
+        const string Key = "playerId";
+        var result = await ProtectedStorage.GetAsync<string>(Key);
+        if (result.Success)
+        {
+            _playerId = result.Value;
+            await InvokeAsync(StateHasChanged);
+        }
+        else
+        {
+            await ProtectedStorage.SetAsync(Key, PlayerId);
+        }
+        if (!string.IsNullOrEmpty(State.PlayerXId) && string.IsNullOrEmpty(State.PlayerOId)) _playerId = "player2";
+
+        await State.ResetBoard(PlayerId);
+    }
+
+    public void Dispose()
+    {
+        if (State != null)
+        {
+            State.OnChange -= RefreshUI;
+            State.OnReset -= ResetGameEvent;
+        }
+    }
+}
